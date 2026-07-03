@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    env_file:
+      - .env.example
+
+  # Enabled when the dashboard milestone lands (J8: FastAPI + Postgres for the
+  # runs/scores/slices UI). SQLite is the store for everything before that.
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: judgekit
+  #     POSTGRES_PASSWORD: judgekit
+  #     POSTGRES_DB: judgekit
+  #   ports:
+  #     - "5432:5432"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U judgekit"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 5
