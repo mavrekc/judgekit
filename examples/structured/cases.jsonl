@@ -1,0 +1,8 @@
+{"id": "ent-01", "input": "Ada Lovelace was born in 1815 and is considered the first computer programmer.", "reference": "{\"name\": \"Ada Lovelace\", \"year\": 1815}", "metadata": {"domain": "history"}}
+{"id": "ent-02", "input": "The Eiffel Tower was completed in 1889 in Paris, France.", "reference": "{\"name\": \"Eiffel Tower\", \"year\": 1889, \"city\": \"Paris\"}", "metadata": {"domain": "landmarks"}}
+{"id": "ent-03", "input": "Marie Curie won the Nobel Prize in Physics in 1903.", "reference": "{\"name\": \"Marie Curie\", \"year\": 1903, \"prize\": \"Physics\"}", "human_label": 1, "metadata": {"domain": "history"}}
+{"id": "ent-04", "input": "The Wright brothers achieved powered flight in 1903 at Kitty Hawk.", "reference": "{\"name\": \"Wright brothers\", \"year\": 1903, \"location\": \"Kitty Hawk\"}", "metadata": {"domain": "history"}}
+{"id": "ent-05", "input": "Albert Einstein published the theory of general relativity in 1915.", "reference": "{\"name\": \"Albert Einstein\", \"year\": 1915}", "human_label": 0, "metadata": {"domain": "history"}}
+{"id": "ent-06", "input": "The Great Wall of China was primarily built during the Ming dynasty.", "reference": "{\"name\": \"Great Wall of China\", \"era\": \"Ming dynasty\"}", "metadata": {"domain": "history"}}
+{"id": "ent-07", "input": "Nikola Tesla developed the AC induction motor in 1887.", "reference": "{\"name\": \"Nikola Tesla\", \"year\": 1887, \"invention\": \"AC induction motor\"}", "metadata": {"domain": "history"}}
+{"id": "ent-08", "input": "Rosalind Franklin's X-ray images contributed to the discovery of DNA's structure in 1953.", "reference": "{\"name\": \"Rosalind Franklin\", \"year\": 1953, \"contribution\": \"DNA structure\"}", "metadata": {"domain": "history"}}

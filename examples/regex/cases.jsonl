@@ -1,0 +1,8 @@
+{"id": "date-01", "input": "The meeting is scheduled for March 15, 2024. Provide the date as YYYY-MM-DD.", "reference": "^2024-03-15$", "metadata": {"domain": "scheduling"}}
+{"id": "date-02", "input": "The invoice was issued on 2023-11-02. Normalize the date to YYYY-MM-DD.", "reference": "^2023-11-02$", "metadata": {"domain": "finance"}}
+{"id": "date-03", "input": "Our contract begins on the first of July, 2025. Give the start date as YYYY-MM-DD.", "reference": "^2025-07-01$", "metadata": {"domain": "legal"}}
+{"id": "date-04", "input": "The package shipped 04/09/2024 (April 9, 2024 in US format). Provide the ISO date as YYYY-MM-DD.", "reference": "^2024-04-09$", "metadata": {"domain": "logistics"}}
+{"id": "date-05", "input": "Log entry: event occurred at 2022-01-05T14:30:00Z. Extract just the date portion.", "reference": "\\d{4}-\\d{2}-\\d{2}", "metadata": {"domain": "logs"}}
+{"id": "date-06", "input": "The deadline is 2024-12-31. Confirm the deadline date in YYYY-MM-DD format.", "reference": "^2024-12-31$", "human_label": 1, "metadata": {"domain": "scheduling"}}
+{"id": "date-07", "input": "She was born on September 3rd, 1990. Output her birth date as YYYY-MM-DD.", "reference": "^1990-09-03$", "human_label": 0, "metadata": {"domain": "biography"}}
+{"id": "date-08", "input": "The report covers activity from 2021-06-01 through 2021-06-30. Extract the start date.", "reference": "^2021-06-01$", "metadata": {"domain": "reporting"}}

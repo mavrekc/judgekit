@@ -13,9 +13,9 @@ drops into CI.
 
 ## Status
 
-Early stage. The design is complete and implementation proceeds milestone by milestone (see
-Roadmap). The current focus is the dataset schema, deterministic scorers, and the statistical
-core, none of which require a live model.
+The first release has shipped: the dataset schema, the deterministic scorers, and `judgekit run`.
+Next up is the statistical core (Cohen's kappa and Krippendorff's alpha vs. human labels). See
+Roadmap for the rest of the milestone plan.
 
 ## Architecture
 
@@ -45,18 +45,40 @@ flowchart LR
 
 ## What the first release delivers
 
-- A versioned JSONL dataset schema (input, reference, human label, slices) validated by pydantic
-  models.
-- Deterministic scorers (exact, regex, structured-diff) behind a `judgekit run` command, with no
-  model required for this slice.
-- A statistical core (Cohen's kappa, Krippendorff's alpha) tested against known fixtures,
-  producing the report objects every later component builds on.
-- A `judgekit gate` command that compares a run against a baseline with a statistical test and
-  exits nonzero in CI on a real regression.
+- A versioned JSONL dataset schema (input, reference, human label, metadata slices) validated by
+  pydantic models, with a content-addressed `dataset_version` (a sha256 hash over the case set).
+- Deterministic scorers (exact, regex, structured) behind a `judgekit run` command. Zero model
+  calls; cost is recorded as 0.0 on every result.
+- Append-only JSONL run artifacts: a manifest line (run id, dataset version, scorer, numeric
+  summary) followed by one traced `RunResult` line per case.
+
+## Quickstart
+
+```bash
+uv run judgekit run --dataset examples/exact/cases.jsonl --outputs examples/exact/outputs.jsonl --scorer exact
+uv run judgekit run --dataset examples/regex/cases.jsonl --outputs examples/regex/outputs.jsonl --scorer regex
+uv run judgekit run --dataset examples/structured/cases.jsonl --outputs examples/structured/outputs.jsonl --scorer structured
+```
+
+Each run writes its artifact to `runs/<run_id>.jsonl` by default (pass `--out` to choose the path)
+and prints a summary, for example:
+
+```
+run_id          f256b44ca6014509a2cd031200804a87
+dataset_version sha256:ca0bf0709f3afd4f9ef3d1ee2fcd5e32253624bdb5cbc5473caf6523b6b3f600
+scorer          exact
+n_cases         8
+mean_score      0.7500
+pass_rate       0.7500
+artifact        runs/f256b44ca6014509a2cd031200804a87.jsonl
+```
+
+Exit codes: 0 = run completed (scores are measurements, not gates), 1 = data or validation errors
+(dataset and outputs problems are reported with line numbers), 2 = usage errors.
 
 ## Roadmap
 
-1. Dataset schema, deterministic scorers, and CLI.
+1. Dataset schema, deterministic scorers, and CLI. (shipped)
 2. Statistical core: kappa and alpha with confidence intervals.
 3. Judge runner: provider-agnostic interface, response caching, per-run cost tracking.
 4. Calibration studies against human labels, with locked rubrics and an explicit "unknown" option.
@@ -73,6 +95,8 @@ make check   # lint, typecheck, test
 ```
 
 Individual targets: `make lint`, `make format`, `make typecheck`, `make test`, `make docker-build`.
+
+The CLI installs as the `judgekit` entry point; check it with `uv run judgekit --version`.
 
 ## License
 

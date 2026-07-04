@@ -1,0 +1,8 @@
+{"case_id": "date-01", "output": "2024-03-15"}
+{"case_id": "date-02", "output": "2023-11-02"}
+{"case_id": "date-03", "output": "2025-07-01."}
+{"case_id": "date-04", "output": "2024-04-09"}
+{"case_id": "date-05", "output": "The date is 2022-01-05, extracted from the timestamp."}
+{"case_id": "date-06", "output": "2024-12-31"}
+{"case_id": "date-07", "output": "1990-9-3"}
+{"case_id": "date-08", "output": "2021-06-01"}

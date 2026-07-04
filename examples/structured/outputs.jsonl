@@ -1,0 +1,8 @@
+{"case_id": "ent-01", "output": "{\"year\": 1815, \"name\": \"Ada Lovelace\"}"}
+{"case_id": "ent-02", "output": "{\"name\": \"Eiffel Tower\", \"year\": 1889, \"city\": \"Paris\"}"}
+{"case_id": "ent-03", "output": "{ \"name\":  \"Marie Curie\",   \"year\": 1903, \"prize\": \"Physics\" }"}
+{"case_id": "ent-04", "output": "{\"name\": \"Wright brothers\", \"year\": 1904, \"location\": \"Kitty Hawk\"}"}
+{"case_id": "ent-05", "output": "{\"name\": \"Albert Einstein\" \"year\": 1915}"}
+{"case_id": "ent-06", "output": "{\"era\": \"Ming dynasty\", \"name\": \"Great Wall of China\"}"}
+{"case_id": "ent-07", "output": "{\"name\": \"Nikola Tesla\", \"year\": 1887, \"invention\": \"AC induction motor\"}"}
+{"case_id": "ent-08", "output": "{\"name\": \"Rosalind Franklin\", \"year\": 1953, \"contribution\": \"DNA structure\"}"}

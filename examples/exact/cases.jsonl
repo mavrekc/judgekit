@@ -1,0 +1,8 @@
+{"id": "cap-01", "input": "What is the capital of France?", "reference": "Paris", "metadata": {"difficulty": "easy", "domain": "geography"}}
+{"id": "cap-02", "input": "What is the capital of Japan?", "reference": "Tokyo", "metadata": {"difficulty": "easy", "domain": "geography"}}
+{"id": "cap-03", "input": "What is the capital of Australia?", "reference": "Canberra", "metadata": {"difficulty": "medium", "domain": "geography"}}
+{"id": "cap-04", "input": "What is the capital of Canada?", "reference": "Ottawa", "metadata": {"difficulty": "medium", "domain": "geography"}}
+{"id": "cap-05", "input": "What is the capital of Brazil?", "reference": "Brasilia", "metadata": {"difficulty": "hard", "domain": "geography"}}
+{"id": "cap-06", "input": "What is the capital of Egypt?", "reference": "Cairo", "human_label": 1, "metadata": {"difficulty": "easy", "domain": "geography"}}
+{"id": "cap-07", "input": "What is the capital of Turkey?", "reference": "Ankara", "human_label": 0, "metadata": {"difficulty": "medium", "domain": "geography"}}
+{"id": "cap-08", "input": "What is the capital of South Korea?", "reference": "Seoul", "metadata": {"difficulty": "easy", "domain": "geography"}}
