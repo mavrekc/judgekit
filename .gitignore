@@ -9,6 +9,7 @@ dist/
 *.egg-info/
 .coverage
 .env
+runs/
 
 CLAUDE.md
 PROGRESS.md
