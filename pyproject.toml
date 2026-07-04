@@ -19,6 +19,9 @@ dev = [
     "pre-commit",
 ]
 
+[project.scripts]
+judgekit = "judgekit.cli:app"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

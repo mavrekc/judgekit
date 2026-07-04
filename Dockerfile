@@ -7,4 +7,4 @@ COPY . .
 
 RUN uv sync --frozen --no-dev
 
-CMD ["python", "-c", "import judgekit; print(judgekit.__version__)"]
+CMD ["uv", "run", "--frozen", "--no-dev", "judgekit", "--version"]
