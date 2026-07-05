@@ -21,7 +21,7 @@ from judgekit.models import (
 from judgekit.runner import execute_run, write_artifact
 from judgekit.scorers import Scorer, available_scorers, get_scorer, register
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 __all__ = [
     "Case",
