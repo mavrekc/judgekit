@@ -14,8 +14,10 @@ drops into CI.
 ## Status
 
 The first release has shipped: the dataset schema, the deterministic scorers, and `judgekit run`.
-Next up is the statistical core (Cohen's kappa and Krippendorff's alpha vs. human labels). See
-Roadmap for the rest of the milestone plan.
+The statistical core has now shipped on top of it: `judgekit calibrate` computes Cohen's kappa and
+Krippendorff's alpha (nominal, ordinal, interval) against human labels, with bootstrap confidence
+intervals. Next up is the judge runner (provider-agnostic LLM integration). See Roadmap for the
+rest of the milestone plan.
 
 ## Architecture
 
@@ -52,6 +54,17 @@ flowchart LR
 - Append-only JSONL run artifacts: a manifest line (run id, dataset version, scorer, numeric
   summary) followed by one traced `RunResult` line per case.
 
+## What the statistical core adds
+
+- `judgekit calibrate` compares one or more rater label files (JSONL, `case_id` + `label`) against
+  a dataset's human labels.
+- Cohen's kappa, percent agreement, and confusion matrices (overall and per metadata slice) for a
+  single rater vs. human; Krippendorff's alpha for any number of raters, with missing data handled.
+- 95% bootstrap confidence intervals, seeded so reports are reproducible - the seed and resample
+  count used are recorded in the report artifact.
+- A single JSON report artifact that cites the exact `dataset_version`, with n accounting
+  (`n_cases` / `n_labeled` / `n_used`) so shrinking coverage is always visible.
+
 ## Quickstart
 
 ```bash
@@ -76,10 +89,36 @@ artifact        runs/f256b44ca6014509a2cd031200804a87.jsonl
 Exit codes: 0 = run completed (scores are measurements, not gates), 1 = data or validation errors
 (dataset and outputs problems are reported with line numbers), 2 = usage errors.
 
+`judgekit calibrate` compares rater label files against a dataset's human labels:
+
+```bash
+uv run judgekit calibrate --dataset examples/calibration/cases.jsonl --ratings examples/calibration/judge_strong.jsonl
+uv run judgekit calibrate --dataset examples/calibration/cases.jsonl --ratings examples/calibration/judge_weak.jsonl
+uv run judgekit calibrate --dataset examples/calibration/cases.jsonl --ratings examples/calibration/judge_strong.jsonl --ratings examples/calibration/judge_weak.jsonl
+```
+
+Cohen's kappa is only defined for a single rater against the human anchor, so the two single-rater
+commands above each report a kappa line; the multi-rater command passes two `--ratings` files and
+reports alpha only (no kappa). The strong judge's run prints:
+
+```
+report_id       55446c6c7dba43ec8a5b6630faa3475f
+dataset_version sha256:e925f537554ebade2f32a951ab1c003f72664a2d77cbed3113e7c615693f2afc
+level           nominal
+n_cases         10
+n_labeled       9
+kappa           0.7500 [0.1579, 1.0000] (n=8)
+alpha           0.7619 [0.0000, 1.0000] (n=8)
+artifact        reports/55446c6c7dba43ec8a5b6630faa3475f.json
+```
+
+The weak judge agrees with the human labels barely above chance: its kappa comes out to 0.1429,
+clearly below the strong judge's 0.7500.
+
 ## Roadmap
 
 1. Dataset schema, deterministic scorers, and CLI. (shipped)
-2. Statistical core: kappa and alpha with confidence intervals.
+2. Statistical core: kappa and alpha with confidence intervals. (shipped)
 3. Judge runner: provider-agnostic interface, response caching, per-run cost tracking.
 4. Calibration studies against human labels, with locked rubrics and an explicit "unknown" option.
 5. Five-type bias battery: position, verbosity, self-preference, format, calibration drift.
