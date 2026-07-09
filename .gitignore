@@ -10,6 +10,7 @@ dist/
 .coverage
 .env
 runs/
+reports/
 
 CLAUDE.md
 PROGRESS.md

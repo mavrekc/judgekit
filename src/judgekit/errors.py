@@ -17,5 +17,13 @@ class RunError(JudgekitError):
     """Raised for run orchestration failures."""
 
 
+class StatsError(JudgekitError):
+    """Raised when an agreement statistic is undefined or its input is invalid."""
+
+
+class CalibrationError(JudgekitError):
+    """Raised for calibration report alignment or construction problems."""
+
+
 class UnknownScorerError(JudgekitError):
     """Raised when a requested scorer id is not registered."""

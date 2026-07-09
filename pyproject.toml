@@ -17,6 +17,7 @@ dev = [
     "ruff",
     "mypy",
     "pre-commit",
+    "krippendorff",
 ]
 
 [project.scripts]
