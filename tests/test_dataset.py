@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from judgekit import hashing
-from judgekit.dataset import load_dataset, load_outputs
+from judgekit.dataset import load_dataset, load_outputs, load_ratings
 from judgekit.errors import DatasetError
 from judgekit.models import CaseRecord
 
@@ -205,3 +205,75 @@ def test_load_dataset_unicode_line_separator_inside_string(tmp_path: Path) -> No
     dataset = load_dataset(path)
 
     assert dataset.cases[0].input == "before\u2028after"
+
+
+def test_load_ratings_valid_mixed_label_types(tmp_path: Path) -> None:
+    lines = [
+        json.dumps({"case_id": "c1", "label": "yes"}),
+        json.dumps({"case_id": "c2", "label": 1}),
+        json.dumps({"case_id": "c3", "label": 0.5}),
+        json.dumps({"case_id": "c4", "label": True}),
+    ]
+    path = _write(tmp_path, "ratings.jsonl", lines)
+
+    result = load_ratings(path)
+
+    assert result == {"c1": "yes", "c2": 1, "c3": 0.5, "c4": True}
+
+
+def test_load_ratings_duplicate_case_id(tmp_path: Path) -> None:
+    lines = [
+        json.dumps({"case_id": "c1", "label": "yes"}),
+        json.dumps({"case_id": "c2", "label": "no"}),
+        json.dumps({"case_id": "c1", "label": "no"}),
+    ]
+    path = _write(tmp_path, "ratings.jsonl", lines)
+
+    with pytest.raises(DatasetError) as exc:
+        load_ratings(path)
+    message = str(exc.value)
+    assert "line 1" in message
+    assert "line 3" in message
+    assert "c1" in message
+
+
+def test_load_ratings_invalid_json_and_schema_error_together(tmp_path: Path) -> None:
+    lines = [
+        "{not valid json",
+        json.dumps({"case_id": "c2"}),
+        json.dumps({"case_id": "c3", "label": "yes"}),
+    ]
+    path = _write(tmp_path, "ratings.jsonl", lines)
+
+    with pytest.raises(DatasetError) as exc:
+        load_ratings(path)
+    message = str(exc.value)
+    assert "line 1" in message
+    assert "line 2" in message
+
+
+def test_load_ratings_empty_file(tmp_path: Path) -> None:
+    path = tmp_path / "empty.jsonl"
+    path.write_text("", encoding="utf-8")
+
+    with pytest.raises(DatasetError):
+        load_ratings(path)
+
+
+def test_load_ratings_utf8_bom(tmp_path: Path) -> None:
+    path = tmp_path / "bom.jsonl"
+    content = json.dumps({"case_id": "c1", "label": "yes"}) + "\n"
+    path.write_bytes(codecs.BOM_UTF8 + content.encode("utf-8"))
+
+    result = load_ratings(path)
+
+    assert result == {"c1": "yes"}
+
+
+def test_load_ratings_rejects_nan_label(tmp_path: Path) -> None:
+    lines = ['{"case_id": "c1", "label": NaN}']
+    path = _write(tmp_path, "ratings.jsonl", lines)
+
+    with pytest.raises(DatasetError) as exc:
+        load_ratings(path)
+    assert "line 1" in str(exc.value)

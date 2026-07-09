@@ -4,12 +4,18 @@ import pytest
 from pydantic import ValidationError
 
 from judgekit.models import (
+    AgreementEstimate,
+    CalibrationReport,
     Case,
     CaseRecord,
+    KappaEstimate,
     OutputRecord,
+    RaterSummary,
+    RatingRecord,
     RunManifest,
     RunResult,
     RunSummary,
+    SliceAgreement,
 )
 
 
@@ -138,3 +144,157 @@ def test_run_manifest_defaults() -> None:
     )
     assert manifest.kind == "manifest"
     assert manifest.schema_version == 1
+
+
+def test_case_record_rejects_nan_human_label() -> None:
+    with pytest.raises(ValidationError):
+        CaseRecord(id="c1", input="q", human_label=float("nan"))
+
+
+def test_case_record_rejects_infinity_human_label() -> None:
+    with pytest.raises(ValidationError):
+        CaseRecord(id="c1", input="q", human_label=float("inf"))
+
+
+def test_case_record_rejects_nan_in_metadata() -> None:
+    with pytest.raises(ValidationError):
+        CaseRecord(id="c1", input="q", metadata={"score": float("nan")})
+
+
+def test_case_record_still_accepts_valid_metadata_and_label() -> None:
+    record = CaseRecord(
+        id="c1",
+        input="q",
+        human_label=1.5,
+        metadata={"difficulty": "hard", "weight": 2.0},
+    )
+    assert record.human_label == 1.5
+    assert record.metadata == {"difficulty": "hard", "weight": 2.0}
+
+
+@pytest.mark.parametrize("label", ["yes", 1, 0.5, True])
+def test_rating_record_accepts_each_label_type(label: object) -> None:
+    record = RatingRecord(case_id="c1", label=label)  # type: ignore[arg-type]
+    assert record.label == label
+
+
+def test_rating_record_requires_label() -> None:
+    with pytest.raises(ValidationError):
+        RatingRecord(case_id="c1")  # type: ignore[call-arg]
+
+
+def test_rating_record_rejects_empty_case_id() -> None:
+    with pytest.raises(ValidationError):
+        RatingRecord(case_id="", label="yes")
+
+
+def test_rating_record_ignores_extra_keys() -> None:
+    rating = RatingRecord(case_id="c1", label="yes", extra_field="ignored")  # type: ignore[call-arg]
+    assert "extra_field" not in rating.model_dump()
+
+
+def test_rating_record_is_frozen() -> None:
+    rating = RatingRecord(case_id="c1", label="yes")
+    with pytest.raises(ValidationError):
+        rating.label = "no"  # type: ignore[misc]
+
+
+def test_rating_record_rejects_nan_label() -> None:
+    with pytest.raises(ValidationError):
+        RatingRecord(case_id="c1", label=float("nan"))
+
+
+def test_rating_record_rejects_infinity_label() -> None:
+    with pytest.raises(ValidationError):
+        RatingRecord(case_id="c1", label=float("inf"))
+
+
+def _calibration_report_kwargs(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "report_id": "rep1",
+        "created_at": datetime(2026, 7, 9),
+        "dataset_path": "data/cases.jsonl",
+        "dataset_version": "sha256:abc",
+        "level": "nominal",
+        "raters": (
+            RaterSummary(
+                rater_id="human",
+                ratings_path="data/human.jsonl",
+                n_ratings=10,
+                n_matched=10,
+            ),
+        ),
+        "n_cases": 10,
+        "n_labeled": 10,
+        "bootstrap_seed": 0,
+        "bootstrap_resamples": 1000,
+        "confidence_level": 0.95,
+        "alpha": AgreementEstimate(
+            value=0.8, ci_low=0.6, ci_high=0.9, n_used=10, n_resamples_used=1000
+        ),
+    }
+    base.update(overrides)
+    return base
+
+
+def test_calibration_report_with_kappa_roundtrips() -> None:
+    report = CalibrationReport(
+        **_calibration_report_kwargs(
+            kappa=KappaEstimate(
+                value=0.7,
+                ci_low=0.5,
+                ci_high=0.85,
+                n_used=10,
+                n_resamples_used=1000,
+                percent_agreement=0.9,
+            ),
+            confusion={"true": {"true": 8, "false": 1}, "false": {"true": 1, "false": 0}},
+        )
+    )  # type: ignore[arg-type]
+    restored = CalibrationReport.model_validate_json(report.model_dump_json())
+    assert restored == report
+    assert restored.kappa is not None
+    assert restored.kappa.percent_agreement == 0.9
+
+
+def test_calibration_report_without_kappa_roundtrips() -> None:
+    report = CalibrationReport(**_calibration_report_kwargs())  # type: ignore[arg-type]
+    restored = CalibrationReport.model_validate_json(report.model_dump_json())
+    assert restored == report
+    assert restored.kappa is None
+
+
+def test_calibration_report_rejects_extra_key() -> None:
+    with pytest.raises(ValidationError):
+        CalibrationReport(**_calibration_report_kwargs(unknown_field="x"))  # type: ignore[arg-type]
+
+
+def test_calibration_report_accepts_negative_alpha_value() -> None:
+    report = CalibrationReport(
+        **_calibration_report_kwargs(
+            alpha=AgreementEstimate(
+                value=-0.2, ci_low=-0.5, ci_high=0.1, n_used=10, n_resamples_used=1000
+            )
+        )
+    )  # type: ignore[arg-type]
+    assert report.alpha.value == -0.2
+
+
+@pytest.mark.parametrize("confidence_level", [0.0, 1.0])
+def test_calibration_report_rejects_boundary_confidence_level(confidence_level: float) -> None:
+    with pytest.raises(ValidationError):
+        CalibrationReport(**_calibration_report_kwargs(confidence_level=confidence_level))  # type: ignore[arg-type]
+
+
+def test_calibration_report_rejects_negative_n_cases() -> None:
+    with pytest.raises(ValidationError):
+        CalibrationReport(**_calibration_report_kwargs(n_cases=-1))  # type: ignore[arg-type]
+
+
+def test_slice_agreement_valid() -> None:
+    slice_agreement = SliceAgreement(
+        n=5,
+        percent_agreement=0.8,
+        confusion={"true": {"true": 4, "false": 1}},
+    )
+    assert slice_agreement.n == 5

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from judgekit import hashing
 from judgekit.errors import DatasetError
-from judgekit.models import Case, CaseRecord, Dataset, OutputRecord
+from judgekit.models import Case, CaseRecord, Dataset, Label, OutputRecord, RatingRecord
 
 
 def _read_lines(path: Path) -> list[tuple[int, str]]:
@@ -78,3 +78,9 @@ def load_outputs(path: Path) -> dict[str, str]:
     """Load a JSONL outputs file into a case_id -> output mapping."""
     records = _load_records(path, OutputRecord, lambda r: r.case_id, "case_id")
     return {record.case_id: record.output for record in records}
+
+
+def load_ratings(path: Path) -> dict[str, Label]:
+    """Load a JSONL ratings file into a case_id -> label mapping."""
+    records = _load_records(path, RatingRecord, lambda r: r.case_id, "case_id")
+    return {record.case_id: record.label for record in records}
