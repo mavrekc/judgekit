@@ -1,6 +1,6 @@
 [project]
 name = "judgekit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Evaluate your evaluators: LLM-judge calibration and agent-trajectory evaluation, with judge-vs-human validity as the headline metric."
 readme = "README.md"
 requires-python = ">=3.12"

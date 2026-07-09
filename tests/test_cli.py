@@ -252,7 +252,7 @@ def test_version() -> None:
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert "judgekit 0.1.0" in result.stdout
+    assert "judgekit 0.2.0" in result.stdout
 
 
 def test_nonexistent_dataset_path(tmp_path: Path) -> None:
