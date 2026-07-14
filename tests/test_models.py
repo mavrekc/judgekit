@@ -8,6 +8,11 @@ from judgekit.models import (
     CalibrationReport,
     Case,
     CaseRecord,
+    JudgeConfigRecord,
+    JudgeParams,
+    JudgeRunManifest,
+    JudgeTotals,
+    JudgeVerdict,
     KappaEstimate,
     OutputRecord,
     RaterSummary,
@@ -298,3 +303,163 @@ def test_slice_agreement_valid() -> None:
         confusion={"true": {"true": 4, "false": 1}},
     )
     assert slice_agreement.n == 5
+
+
+def test_judge_params_defaults() -> None:
+    params = JudgeParams()
+    assert params.temperature == 0.0
+    assert params.max_tokens == 256
+    assert params.top_p is None
+    assert params.stop == ()
+
+
+def test_judge_params_rejects_negative_temperature() -> None:
+    with pytest.raises(ValidationError):
+        JudgeParams(temperature=-0.1)
+
+
+def test_judge_params_rejects_zero_max_tokens() -> None:
+    with pytest.raises(ValidationError):
+        JudgeParams(max_tokens=0)
+
+
+@pytest.mark.parametrize("top_p", [0.0, 1.1])
+def test_judge_params_rejects_top_p_out_of_range(top_p: float) -> None:
+    with pytest.raises(ValidationError):
+        JudgeParams(top_p=top_p)
+
+
+def _judge_config_record_kwargs(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "id": "example-judge",
+        "provider": "anthropic",
+        "model": "test-model",
+        "rubric": "Rate this. $input",
+        "labels": ("good", "bad"),
+    }
+    base.update(overrides)
+    return base
+
+
+def test_judge_config_record_rejects_human_id() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(id="human"))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_rejects_empty_id() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(id=""))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_rejects_bad_provider() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(provider="openai"))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_rejects_single_label() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(labels=("good",)))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_rejects_nan_label() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(labels=(float("nan"), "bad")))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_accepts_int_and_bool_labels() -> None:
+    record = JudgeConfigRecord(**_judge_config_record_kwargs(labels=(1, True)))  # type: ignore[arg-type]
+    assert record.labels == (1, True)
+
+
+def test_judge_config_record_rejects_rubric_without_input() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(rubric="Rate this reply."))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_rejects_rubric_with_unknown_placeholder() -> None:
+    with pytest.raises(ValidationError, match="output"):
+        JudgeConfigRecord(**_judge_config_record_kwargs(rubric="Rate $input against $output."))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_rejects_invalid_template_syntax() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(rubric="judge ${input"))  # type: ignore[arg-type]
+
+
+def test_judge_config_record_rejects_base_url_with_anthropic() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(
+            **_judge_config_record_kwargs(provider="anthropic", base_url="https://example.com")
+        )  # type: ignore[arg-type]
+
+
+def test_judge_config_record_accepts_base_url_with_openai_compatible() -> None:
+    record = JudgeConfigRecord(
+        **_judge_config_record_kwargs(provider="openai-compatible", base_url="https://example.com")
+    )  # type: ignore[arg-type]
+    assert record.base_url == "https://example.com"
+
+
+def test_judge_config_record_rejects_unknown_extra_key() -> None:
+    with pytest.raises(ValidationError):
+        JudgeConfigRecord(**_judge_config_record_kwargs(unknown_field="x"))  # type: ignore[arg-type]
+
+
+def _judge_verdict_kwargs(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "case_id": "c1",
+        "label": "good",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost": 0.01,
+        "cached": False,
+        "n_attempts": 1,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_judge_verdict_rejects_zero_attempts() -> None:
+    with pytest.raises(ValidationError):
+        JudgeVerdict(**_judge_verdict_kwargs(n_attempts=0))  # type: ignore[arg-type]
+
+
+def test_judge_verdict_rejects_negative_input_tokens() -> None:
+    with pytest.raises(ValidationError):
+        JudgeVerdict(**_judge_verdict_kwargs(input_tokens=-1))  # type: ignore[arg-type]
+
+
+def test_judge_verdict_rejects_negative_output_tokens() -> None:
+    with pytest.raises(ValidationError):
+        JudgeVerdict(**_judge_verdict_kwargs(output_tokens=-1))  # type: ignore[arg-type]
+
+
+def test_judge_verdict_rejects_negative_cost() -> None:
+    with pytest.raises(ValidationError):
+        JudgeVerdict(**_judge_verdict_kwargs(cost=-0.1))  # type: ignore[arg-type]
+
+
+def test_judge_verdict_rejects_nan_label() -> None:
+    with pytest.raises(ValidationError):
+        JudgeVerdict(**_judge_verdict_kwargs(label=float("nan")))  # type: ignore[arg-type]
+
+
+def test_judge_run_manifest_defaults() -> None:
+    manifest = JudgeRunManifest(
+        run_id="r1",
+        created_at=datetime(2026, 7, 14),
+        dataset_path="data/cases.jsonl",
+        dataset_version="sha256:abc",
+        judge_config_path="configs/judge.json",
+        judge_config_id="example-judge",
+        judge_config_hash="sha256:def",
+        provider="anthropic",
+        model="test-model",
+        cache_dir=".cache/judge",
+        totals=JudgeTotals(
+            n_cases=1, n_cached=0, n_live=1, input_tokens=10, output_tokens=5, cost=0.01
+        ),
+    )
+    assert manifest.kind == "judge_run"
+    assert manifest.schema_version == 1
+    assert manifest.max_cost is None

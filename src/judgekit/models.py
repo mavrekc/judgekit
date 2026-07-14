@@ -2,9 +2,10 @@
 
 import math
 from datetime import datetime
+from string import Template
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MetaValue = str | int | float | bool
 Label = str | int | float | bool
@@ -195,3 +196,147 @@ class RunArtifact(BaseModel):
 
     manifest: RunManifest
     results: tuple[RunResult, ...]
+
+
+class JudgeParams(BaseModel):
+    """Sampling parameters sent to the judge model on every call."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    temperature: float = Field(default=0.0, ge=0)
+    max_tokens: int = Field(default=256, ge=1)
+    top_p: float | None = Field(default=None, gt=0, le=1)
+    stop: tuple[str, ...] = ()
+
+
+class JudgePricing(BaseModel):
+    """User-declared prices per million tokens; judgekit ships no price table by design."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    input_per_mtok: float = Field(ge=0)
+    output_per_mtok: float = Field(ge=0)
+
+
+class JudgeConfigRecord(BaseModel):
+    """A judge's rubric, model, and labels, independent of its version hash."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1)
+    provider: Literal["anthropic", "openai-compatible"]
+    model: str = Field(min_length=1)
+    rubric: str
+    labels: tuple[Label, ...] = Field(min_length=2)
+    params: JudgeParams = Field(default_factory=JudgeParams)
+    pricing: JudgePricing | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
+    timeout_s: float = Field(default=60.0, gt=0)
+    max_retries: int = Field(default=3, ge=0)
+    max_label_attempts: int = Field(default=3, ge=1)
+
+    @field_validator("id")
+    @classmethod
+    def _id_not_human(cls, value: str) -> str:
+        if value == "human":
+            raise ValueError('"human" is the reserved anchor rater id in calibration reports')
+        return value
+
+    @field_validator("rubric")
+    @classmethod
+    def _rubric_valid_template(cls, value: str) -> str:
+        template = Template(value)
+        if not template.is_valid():
+            raise ValueError("invalid rubric template")
+        identifiers = set(template.get_identifiers())
+        if "input" not in identifiers:
+            raise ValueError("rubric must reference $input")
+        unknown = sorted(identifiers - {"input", "reference"})
+        if unknown:
+            raise ValueError(f"unknown rubric placeholders: {', '.join(unknown)}")
+        return value
+
+    @field_validator("labels")
+    @classmethod
+    def _labels_finite(cls, value: tuple[Label, ...]) -> tuple[Label, ...]:
+        for item in value:
+            _reject_non_finite(item)
+        return value
+
+    @model_validator(mode="after")
+    def _base_url_requires_openai_compatible(self) -> "JudgeConfigRecord":
+        if self.base_url is not None and self.provider != "openai-compatible":
+            raise ValueError("base_url is only supported for the openai-compatible provider")
+        return self
+
+
+class JudgeConfig(JudgeConfigRecord):
+    """A JudgeConfigRecord bound to the version hash computed from its behavior fields."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version_hash: str = Field(min_length=1)
+
+
+class JudgeVerdict(BaseModel):
+    """A single judge label for one case, with token and cost accounting."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    case_id: str = Field(min_length=1)
+    label: Label
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cost: float = Field(ge=0)
+    cached: bool
+    n_attempts: int = Field(ge=1)
+
+    @field_validator("label")
+    @classmethod
+    def _label_finite(cls, value: Label) -> Label:
+        _reject_non_finite(value)
+        return value
+
+
+class JudgeTotals(BaseModel):
+    """Aggregate token, cache, and cost accounting over a judge run."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    n_cases: int = Field(ge=0)
+    n_cached: int = Field(ge=0)
+    n_live: int = Field(ge=0)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cost: float = Field(ge=0)
+
+
+class JudgeRunManifest(BaseModel):
+    """Metadata describing a judge run, stored alongside its verdicts."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["judge_run"] = "judge_run"
+    schema_version: int = 1
+    run_id: str
+    created_at: datetime
+    dataset_path: str
+    dataset_version: str
+    judge_config_path: str
+    judge_config_id: str
+    judge_config_hash: str
+    provider: str
+    model: str
+    cache_dir: str
+    max_cost: float | None = None
+    totals: JudgeTotals
+
+
+class JudgeRunArtifact(BaseModel):
+    """A judge run manifest paired with its full set of verdicts."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    manifest: JudgeRunManifest
+    verdicts: tuple[JudgeVerdict, ...]
