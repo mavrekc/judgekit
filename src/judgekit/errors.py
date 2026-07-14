@@ -25,5 +25,17 @@ class CalibrationError(JudgekitError):
     """Raised for calibration report alignment or construction problems."""
 
 
+class ProviderError(JudgekitError):
+    """Raised when an LLM provider call fails after retries or returns an unusable response."""
+
+
+class JudgeError(JudgekitError):
+    """Raised for judge config or judge run problems."""
+
+
+class BudgetExceededError(JudgeError):
+    """Raised when a judge run reaches its cost ceiling before completing."""
+
+
 class UnknownScorerError(JudgekitError):
     """Raised when a requested scorer id is not registered."""
