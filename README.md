@@ -14,16 +14,20 @@ drops into CI.
 ## Status
 
 The first release has shipped: the dataset schema, the deterministic scorers, and `judgekit run`.
-The statistical core has now shipped on top of it: `judgekit calibrate` computes Cohen's kappa and
+The statistical core shipped on top of it: `judgekit calibrate` computes Cohen's kappa and
 Krippendorff's alpha (nominal, ordinal, interval) against human labels, with bootstrap confidence
-intervals. Next up is the judge runner (provider-agnostic LLM integration). See Roadmap for the
-rest of the milestone plan.
+intervals. The judge runner has now shipped on top of that: `judgekit judge` runs a versioned judge
+config against a dataset behind a provider-agnostic interface (Anthropic and OpenAI-compatible),
+with a content-addressed response cache, per-call token and cost accounting, and a hard
+`--max-cost` ceiling. Judge verdicts feed `judgekit calibrate` as raters. Next up is calibration
+studies with locked rubrics and an explicit "unknown" option. See Roadmap for the rest of the
+milestone plan.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    DS[Dataset layer<br/>versioned JSONL cases] --> RN[Judge runner<br/>batched, cached, cost-tracked]
+    DS[Dataset layer<br/>versioned JSONL cases] --> RN[Judge runner<br/>cached, cost-tracked]
     SC[Scorer registry<br/>deterministic and judge] --> RN
     RN --> CAL[Calibration report<br/>kappa / alpha vs human]
     RN --> BIAS[Bias battery<br/>five bias types]
@@ -64,6 +68,28 @@ flowchart LR
   count used are recorded in the report artifact.
 - A single JSON report artifact that cites the exact `dataset_version`, with n accounting
   (`n_cases` / `n_labeled` / `n_used`) so shrinking coverage is always visible.
+
+## What the judge runner adds
+
+- `judgekit judge` executes a judge config (id, rubric, labels, model, params) against a dataset
+  through a provider-agnostic interface: Anthropic (native Messages API) and OpenAI-compatible
+  (configurable base_url - OpenAI, vLLM, Ollama, gateways) providers, hand-rolled on httpx with
+  bounded exponential backoff, Retry-After support, and fail-fast on non-retryable errors.
+- Judge configs are versioned by a content hash over behavior fields only (id, labels, model,
+  params, rubric); operational settings (pricing, timeouts, retries, base_url) are deliberately
+  excluded, so an ops edit never invalidates a calibration result.
+- Responses are cached keyed on (config hash, case content hash) - never the case id - and each
+  verdict is written to the cache the moment it completes, so an aborted run's spend is preserved
+  and a rerun resumes from cache hits. `--max-cost` is a hard ceiling checked before every live
+  call; token usage is required from providers (missing usage is an error, not a zero), and cost
+  is computed from user-declared per-MTok pricing in the config - there is no baked-in price table
+  to go stale.
+- A judge run artifact is itself a rater: pass it to `judgekit calibrate --ratings` and the judge's
+  verdicts are scored against the dataset's human labels (kappa/alpha), with the rater named by
+  the config id.
+- The model must answer with a JSON verdict naming one of the config's labels; malformed or
+  out-of-set replies get a bounded number of re-asks (attempts and their cost are recorded), then
+  the run aborts loudly.
 
 ## Quickstart
 
@@ -115,11 +141,66 @@ artifact        reports/55446c6c7dba43ec8a5b6630faa3475f.json
 The weak judge agrees with the human labels barely above chance: its kappa comes out to 0.1429,
 clearly below the strong judge's 0.7500.
 
+The repo also ships a judge config for the same support-ticket dataset, plus a recorded response
+cache from a real Claude Haiku 4.5 run, so the full judge pipeline replays offline at zero cost:
+
+```bash
+uv run judgekit judge --dataset examples/calibration/cases.jsonl --config examples/judge/support_quality.json --cache-dir examples/judge/cache --max-cost 0 --out runs/judge-demo.jsonl
+```
+
+```
+run_id          LIVE_RUN_ID
+dataset_version sha256:e925f537554ebade2f32a951ab1c003f72664a2d77cbed3113e7c615693f2afc
+judge_config    support-quality-v1
+config_hash     LIVE_CONFIG_HASH
+model           claude-haiku-4-5-20251001
+n_cases         10
+n_cached        10
+n_live          0
+input_tokens    LIVE_INPUT_TOKENS
+output_tokens   LIVE_OUTPUT_TOKENS
+cost            0.000000
+artifact        runs/judge-demo.jsonl
+```
+
+Every verdict came from the committed cache, `--max-cost 0` proves no money can move, and the same
+command with an `ANTHROPIC_API_KEY` set and a cold cache performs the real run.
+
+Feeding the judge to calibrate works exactly like the strong/weak judge files above:
+
+```bash
+uv run judgekit calibrate --dataset examples/calibration/cases.jsonl --ratings runs/judge-demo.jsonl
+```
+
+```
+report_id       LIVE_REPORT_ID
+dataset_version sha256:e925f537554ebade2f32a951ab1c003f72664a2d77cbed3113e7c615693f2afc
+level           nominal
+n_cases         10
+n_labeled       9
+kappa           LIVE_KAPPA_LINE
+alpha           LIVE_ALPHA_LINE
+artifact        reports/LIVE_REPORT_ID.json
+```
+
+This is the point of the tool: the judge's verdicts are scored against human labels, and the rater
+is named by the config id (`support-quality-v1`), not the file stem.
+
+The recorded cache came from a live run:
+
+```bash
+ANTHROPIC_API_KEY=... uv run judgekit judge --dataset examples/calibration/cases.jsonl --config examples/judge/support_quality.json --max-cost 0.01
+```
+
+The recorded 10-case run cost LIVE_COST_FIGURE (LIVE_INPUT_TOKENS input / LIVE_OUTPUT_TOKENS output
+tokens at $1/$5 per MTok for Claude Haiku 4.5); `--max-cost` caps spend, and the cache directory
+defaults to `.judgekit/cache`.
+
 ## Roadmap
 
 1. Dataset schema, deterministic scorers, and CLI. (shipped)
 2. Statistical core: kappa and alpha with confidence intervals. (shipped)
-3. Judge runner: provider-agnostic interface, response caching, per-run cost tracking.
+3. Judge runner: provider-agnostic interface, response caching, per-run cost tracking. (shipped)
 4. Calibration studies against human labels, with locked rubrics and an explicit "unknown" option.
 5. Five-type bias battery: position, verbosity, self-preference, format, calibration drift.
 6. Regression gate for CI.
