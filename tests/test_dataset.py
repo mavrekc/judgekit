@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from judgekit import hashing
-from judgekit.dataset import load_dataset, load_outputs, load_ratings
+from judgekit.dataset import load_dataset, load_outputs, load_rater, load_ratings
 from judgekit.errors import DatasetError
 from judgekit.models import CaseRecord
 
@@ -277,3 +277,143 @@ def test_load_ratings_rejects_nan_label(tmp_path: Path) -> None:
     with pytest.raises(DatasetError) as exc:
         load_ratings(path)
     assert "line 1" in str(exc.value)
+
+
+def _manifest_dict(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "kind": "judge_run",
+        "schema_version": 1,
+        "run_id": "run1",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "dataset_path": "dataset.jsonl",
+        "dataset_version": "sha256:abc",
+        "judge_config_path": "config.json",
+        "judge_config_id": "judge1",
+        "judge_config_hash": "sha256:def",
+        "provider": "anthropic",
+        "model": "test-model",
+        "cache_dir": ".judgekit/cache",
+        "max_cost": None,
+        "totals": {
+            "n_cases": 2,
+            "n_cached": 2,
+            "n_live": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost": 0.0,
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def _verdict_dict(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "case_id": "c1",
+        "label": "good",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost": 0.0,
+        "cached": True,
+        "n_attempts": 1,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_load_rater_plain_ratings_file(tmp_path: Path) -> None:
+    lines = [
+        json.dumps({"case_id": "c1", "label": "yes"}),
+        json.dumps({"case_id": "c2", "label": "no"}),
+    ]
+    path = _write(tmp_path, "r1.jsonl", lines)
+
+    rater_id, labels = load_rater(path)
+
+    assert rater_id == path.stem
+    assert labels == load_ratings(path)
+
+
+def test_load_rater_plain_file_invalid_line_matches_load_ratings(tmp_path: Path) -> None:
+    lines = [
+        json.dumps({"case_id": "c1", "label": "yes"}),
+        json.dumps({"case_id": "c2"}),
+    ]
+    path = _write(tmp_path, "r1.jsonl", lines)
+
+    with pytest.raises(DatasetError) as rater_exc:
+        load_rater(path)
+    with pytest.raises(DatasetError) as ratings_exc:
+        load_ratings(path)
+    assert str(rater_exc.value) == str(ratings_exc.value)
+
+
+def test_load_rater_judge_artifact(tmp_path: Path) -> None:
+    lines = [
+        json.dumps(_manifest_dict()),
+        json.dumps(_verdict_dict(case_id="c1", label="good")),
+        json.dumps(_verdict_dict(case_id="c2", label="bad")),
+    ]
+    path = _write(tmp_path, "judge.jsonl", lines)
+
+    rater_id, labels = load_rater(path)
+
+    assert rater_id == "judge1"
+    assert labels == {"c1": "good", "c2": "bad"}
+
+
+def test_load_rater_judge_artifact_duplicate_case_id(tmp_path: Path) -> None:
+    lines = [
+        json.dumps(_manifest_dict()),
+        json.dumps(_verdict_dict(case_id="c1", label="good")),
+        json.dumps(_verdict_dict(case_id="c1", label="bad")),
+    ]
+    path = _write(tmp_path, "judge.jsonl", lines)
+
+    with pytest.raises(DatasetError) as exc:
+        load_rater(path)
+    message = str(exc.value)
+    assert "duplicate case_id" in message
+    assert "line 3" in message
+    assert "first seen at line 2" in message
+
+
+def test_load_rater_judge_artifact_corrupt_verdict_line(tmp_path: Path) -> None:
+    lines = [
+        json.dumps(_manifest_dict()),
+        "{not valid json",
+    ]
+    path = _write(tmp_path, "judge.jsonl", lines)
+
+    with pytest.raises(DatasetError) as exc:
+        load_rater(path)
+    assert "line 2" in str(exc.value)
+
+
+def test_load_rater_judge_artifact_manifest_only(tmp_path: Path) -> None:
+    lines = [json.dumps(_manifest_dict())]
+    path = _write(tmp_path, "judge.jsonl", lines)
+
+    with pytest.raises(DatasetError) as exc:
+        load_rater(path)
+    assert "no verdicts found" in str(exc.value)
+
+
+def test_load_rater_empty_file(tmp_path: Path) -> None:
+    path = tmp_path / "empty.jsonl"
+    path.write_text("", encoding="utf-8")
+
+    with pytest.raises(DatasetError) as exc:
+        load_rater(path)
+    assert "no records found" in str(exc.value)
+
+
+def test_load_rater_non_judge_run_kind_falls_through_to_plain(tmp_path: Path) -> None:
+    lines = [json.dumps({"kind": "calibration_report", "case_id": "c1"})]
+    path = _write(tmp_path, "ratings.jsonl", lines)
+
+    with pytest.raises(DatasetError) as rater_exc:
+        load_rater(path)
+    with pytest.raises(DatasetError) as ratings_exc:
+        load_ratings(path)
+    assert str(rater_exc.value) == str(ratings_exc.value)

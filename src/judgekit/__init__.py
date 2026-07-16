@@ -1,22 +1,34 @@
 """judgekit: evaluate your evaluators, with judge-vs-human validity as the headline metric."""
 
 from judgekit.calibration import RaterRatings, execute_calibration, write_report
-from judgekit.dataset import load_dataset, load_outputs, load_ratings
+from judgekit.dataset import load_dataset, load_outputs, load_rater, load_ratings
 from judgekit.errors import (
+    BudgetExceededError,
     CalibrationError,
     DatasetError,
+    JudgeError,
     JudgekitError,
+    ProviderError,
     RunError,
     ScoringError,
     StatsError,
     UnknownScorerError,
 )
+from judgekit.judge import execute_judge, load_judge_config, write_judge_artifact
 from judgekit.models import (
     AgreementEstimate,
     CalibrationReport,
     Case,
     CaseRecord,
     Dataset,
+    JudgeConfig,
+    JudgeConfigRecord,
+    JudgeParams,
+    JudgePricing,
+    JudgeRunArtifact,
+    JudgeRunManifest,
+    JudgeTotals,
+    JudgeVerdict,
     KappaEstimate,
     OutputRecord,
     RaterSummary,
@@ -26,6 +38,14 @@ from judgekit.models import (
     RunResult,
     RunSummary,
     SliceAgreement,
+)
+from judgekit.providers import (
+    AnthropicProvider,
+    OpenAICompatibleProvider,
+    Provider,
+    ProviderRequest,
+    ProviderResponse,
+    get_provider,
 )
 from judgekit.runner import execute_run, write_artifact
 from judgekit.scorers import Scorer, available_scorers, get_scorer, register
@@ -41,16 +61,32 @@ __version__ = "0.2.0"
 
 __all__ = [
     "AgreementEstimate",
+    "AnthropicProvider",
     "BootstrapCI",
+    "BudgetExceededError",
     "CalibrationError",
     "CalibrationReport",
     "Case",
     "CaseRecord",
     "Dataset",
     "DatasetError",
+    "JudgeConfig",
+    "JudgeConfigRecord",
+    "JudgeError",
+    "JudgeParams",
+    "JudgePricing",
+    "JudgeRunArtifact",
+    "JudgeRunManifest",
+    "JudgeTotals",
+    "JudgeVerdict",
     "JudgekitError",
     "KappaEstimate",
+    "OpenAICompatibleProvider",
     "OutputRecord",
+    "Provider",
+    "ProviderError",
+    "ProviderRequest",
+    "ProviderResponse",
     "RaterRatings",
     "RaterSummary",
     "RatingRecord",
@@ -68,14 +104,19 @@ __all__ = [
     "bootstrap_ci",
     "cohen_kappa",
     "execute_calibration",
+    "execute_judge",
     "execute_run",
+    "get_provider",
     "get_scorer",
     "krippendorff_alpha",
     "load_dataset",
+    "load_judge_config",
     "load_outputs",
+    "load_rater",
     "load_ratings",
     "percent_agreement",
     "register",
     "write_artifact",
+    "write_judge_artifact",
     "write_report",
 ]

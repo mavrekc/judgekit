@@ -8,7 +8,16 @@ from pydantic import BaseModel, ValidationError
 
 from judgekit import hashing
 from judgekit.errors import DatasetError
-from judgekit.models import Case, CaseRecord, Dataset, Label, OutputRecord, RatingRecord
+from judgekit.models import (
+    Case,
+    CaseRecord,
+    Dataset,
+    JudgeRunManifest,
+    JudgeVerdict,
+    Label,
+    OutputRecord,
+    RatingRecord,
+)
 
 
 def _read_lines(path: Path) -> list[tuple[int, str]]:
@@ -84,3 +93,65 @@ def load_ratings(path: Path) -> dict[str, Label]:
     """Load a JSONL ratings file into a case_id -> label mapping."""
     records = _load_records(path, RatingRecord, lambda r: r.case_id, "case_id")
     return {record.case_id: record.label for record in records}
+
+
+def _looks_like_judge_run(raw: str) -> bool:
+    """Return True only if raw is a JSON object whose kind is exactly "judge_run"."""
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(value, dict) and value.get("kind") == "judge_run"
+
+
+def load_rater(path: Path) -> tuple[str, dict[str, Label]]:
+    """Load rater labels from a plain ratings JSONL file or a judge run artifact."""
+    lines = _read_lines(path)
+    if not lines:
+        raise DatasetError(f"{path}: no records found")
+
+    first_line_no, first_raw = lines[0]
+    if not _looks_like_judge_run(first_raw):
+        return path.stem, load_ratings(path)
+
+    try:
+        manifest = JudgeRunManifest.model_validate(json.loads(first_raw))
+    except ValidationError as exc:
+        raise DatasetError(f"{path}\nline {first_line_no}: {_validation_detail(exc)}") from exc
+
+    errors: list[tuple[int, str]] = []
+    seen: dict[str, int] = {}
+    verdicts: list[JudgeVerdict] = []
+    for line_no, raw in lines[1:]:
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            errors.append((line_no, f"invalid JSON: {exc.msg}"))
+            continue
+        if not isinstance(value, dict):
+            errors.append((line_no, f"expected a JSON object, got {type(value).__name__}"))
+            continue
+        try:
+            verdict = JudgeVerdict.model_validate(value)
+        except ValidationError as exc:
+            errors.append((line_no, _validation_detail(exc)))
+            continue
+        if verdict.case_id in seen:
+            errors.append(
+                (
+                    line_no,
+                    f'duplicate case_id "{verdict.case_id}" '
+                    f"(first seen at line {seen[verdict.case_id]})",
+                )
+            )
+            continue
+        seen[verdict.case_id] = line_no
+        verdicts.append(verdict)
+
+    if errors:
+        body = "\n".join(f"line {n}: {msg}" for n, msg in sorted(errors, key=lambda e: e[0]))
+        raise DatasetError(f"{path}\n{body}")
+    if not verdicts:
+        raise DatasetError(f"{path}: no verdicts found")
+
+    return manifest.judge_config_id, {v.case_id: v.label for v in verdicts}

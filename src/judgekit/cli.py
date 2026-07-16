@@ -7,8 +7,10 @@ import typer
 
 from judgekit import __version__, stats
 from judgekit.calibration import RaterRatings, execute_calibration, write_report
-from judgekit.dataset import load_dataset, load_outputs, load_ratings
+from judgekit.dataset import load_dataset, load_outputs, load_rater
 from judgekit.errors import JudgekitError
+from judgekit.judge import execute_judge, load_judge_config, write_judge_artifact
+from judgekit.providers import get_provider
 from judgekit.runner import execute_run, write_artifact
 from judgekit.scorers import get_scorer
 
@@ -92,6 +94,65 @@ def run(
 
 
 @app.command()
+def judge(
+    dataset_path: Annotated[
+        Path,
+        typer.Option("--dataset", exists=True, dir_okay=False, readable=True),
+    ],
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", exists=True, dir_okay=False, readable=True),
+    ],
+    out: Annotated[Path | None, typer.Option("--out")] = None,
+    cache_dir: Annotated[Path, typer.Option("--cache-dir")] = Path(".judgekit/cache"),
+    max_cost: Annotated[float | None, typer.Option("--max-cost")] = None,
+) -> None:
+    """Run a judge config over a dataset and write a verdict artifact."""
+    try:
+        dataset = load_dataset(dataset_path)
+        config = load_judge_config(config_path)
+        provider = get_provider(
+            config.provider,
+            base_url=config.base_url,
+            api_key_env=config.api_key_env,
+            timeout_s=config.timeout_s,
+            max_retries=config.max_retries,
+        )
+
+        artifact = execute_judge(
+            dataset,
+            config,
+            provider,
+            dataset_path=str(dataset_path),
+            judge_config_path=str(config_path),
+            cache_dir=cache_dir,
+            max_cost=max_cost,
+        )
+
+        out_path = (
+            out if out is not None else Path("runs") / f"judge-{artifact.manifest.run_id}.jsonl"
+        )
+        write_judge_artifact(artifact, out_path)
+
+        totals = artifact.manifest.totals
+        typer.echo(f"{'run_id':<16}{artifact.manifest.run_id}")
+        typer.echo(f"{'dataset_version':<16}{artifact.manifest.dataset_version}")
+        typer.echo(f"{'judge_config':<16}{config.id}")
+        typer.echo(f"{'config_hash':<16}{artifact.manifest.judge_config_hash}")
+        typer.echo(f"{'model':<16}{artifact.manifest.model}")
+        typer.echo(f"{'n_cases':<16}{totals.n_cases}")
+        typer.echo(f"{'n_cached':<16}{totals.n_cached}")
+        typer.echo(f"{'n_live':<16}{totals.n_live}")
+        typer.echo(f"{'input_tokens':<16}{totals.input_tokens}")
+        typer.echo(f"{'output_tokens':<16}{totals.output_tokens}")
+        typer.echo(f"{'cost':<16}{totals.cost:.6f}")
+        typer.echo(f"{'artifact':<16}{out_path}")
+    except JudgekitError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+@app.command()
 def calibrate(
     dataset_path: Annotated[
         Path,
@@ -113,8 +174,7 @@ def calibrate(
 
         raters: list[RaterRatings] = []
         for path in ratings_paths:
-            labels = load_ratings(path)
-            rater_id = path.stem
+            rater_id, labels = load_rater(path)
             n_unknown = sum(1 for case_id in labels if case_id not in case_ids)
             if n_unknown:
                 typer.echo(

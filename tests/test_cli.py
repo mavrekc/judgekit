@@ -6,8 +6,37 @@ from typer.testing import CliRunner
 
 from judgekit import stats
 from judgekit.cli import app
+from judgekit.dataset import load_dataset
+from judgekit.judge import execute_judge, load_judge_config, write_judge_artifact
+from judgekit.models import CalibrationReport
+from judgekit.providers import ProviderRequest, ProviderResponse
 
 runner = CliRunner()
+
+
+class _FakeProvider:
+    """A scripted Provider double that returns one label per call, in order."""
+
+    provider_id = "fake"
+
+    def __init__(self, labels: list[object]) -> None:
+        self._labels = list(labels)
+
+    def complete(self, request: ProviderRequest) -> ProviderResponse:
+        label = self._labels.pop(0)
+        return ProviderResponse(text=json.dumps({"label": label}), input_tokens=10, output_tokens=5)
+
+
+def _write_judge_config(path: Path, **overrides: object) -> None:
+    config: dict[str, object] = {
+        "id": "judge1",
+        "provider": "anthropic",
+        "model": "test-model",
+        "rubric": "Rate this reply.\n\n$input",
+        "labels": ["good", "bad"],
+    }
+    config.update(overrides)
+    path.write_text(json.dumps(config), encoding="utf-8")
 
 
 def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
@@ -606,3 +635,249 @@ def test_calibrate_bad_dataset_malformed_json(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "line" in result.stderr
+
+
+def test_judge_happy_path_offline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    dataset = tmp_path / "dataset.jsonl"
+    config_path = tmp_path / "judge.json"
+    cache_dir = tmp_path / "cache"
+    out = tmp_path / "judge-out.jsonl"
+    _write_jsonl(
+        dataset,
+        [
+            {"id": "c1", "input": "q1", "human_label": "good"},
+            {"id": "c2", "input": "q2", "human_label": "bad"},
+            {"id": "c3", "input": "q3", "human_label": "good"},
+        ],
+    )
+    _write_judge_config(config_path, pricing={"input_per_mtok": 1.0, "output_per_mtok": 5.0})
+
+    dataset_obj = load_dataset(dataset)
+    loaded_config = load_judge_config(config_path)
+    execute_judge(
+        dataset_obj,
+        loaded_config,
+        _FakeProvider(["good", "bad", "good"]),
+        dataset_path=str(dataset),
+        judge_config_path=str(config_path),
+        cache_dir=cache_dir,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "judge",
+            "--dataset",
+            str(dataset),
+            "--config",
+            str(config_path),
+            "--cache-dir",
+            str(cache_dir),
+            "--max-cost",
+            "0",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert out.exists()
+    for key in ("run_id", "n_cached", "cost"):
+        assert key in result.stdout
+    assert _line(result.stdout, "n_cached") == f"{'n_cached':<16}3"
+    assert _line(result.stdout, "n_cases") == f"{'n_cases':<16}3"
+    assert _line(result.stdout, "cost") == f"{'cost':<16}0.000000"
+
+
+def test_judge_cold_cache_budget_exceeded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    dataset = tmp_path / "dataset.jsonl"
+    config_path = tmp_path / "judge.json"
+    cache_dir = tmp_path / "cache"
+    out = tmp_path / "judge-out.jsonl"
+    _write_jsonl(dataset, [{"id": "c1", "input": "q1", "human_label": "good"}])
+    _write_judge_config(config_path, pricing={"input_per_mtok": 1.0, "output_per_mtok": 5.0})
+
+    result = runner.invoke(
+        app,
+        [
+            "judge",
+            "--dataset",
+            str(dataset),
+            "--config",
+            str(config_path),
+            "--cache-dir",
+            str(cache_dir),
+            "--max-cost",
+            "0",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "cost ceiling" in result.stderr
+    assert not out.exists()
+
+
+def test_judge_out_refuses_overwrite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    dataset = tmp_path / "dataset.jsonl"
+    config_path = tmp_path / "judge.json"
+    cache_dir = tmp_path / "cache"
+    out = tmp_path / "judge-out.jsonl"
+    out.write_text("existing", encoding="utf-8")
+    _write_jsonl(dataset, [{"id": "c1", "input": "q1", "human_label": "good"}])
+    _write_judge_config(config_path)
+
+    dataset_obj = load_dataset(dataset)
+    loaded_config = load_judge_config(config_path)
+    execute_judge(
+        dataset_obj,
+        loaded_config,
+        _FakeProvider(["good"]),
+        dataset_path=str(dataset),
+        judge_config_path=str(config_path),
+        cache_dir=cache_dir,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "judge",
+            "--dataset",
+            str(dataset),
+            "--config",
+            str(config_path),
+            "--cache-dir",
+            str(cache_dir),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "refusing to overwrite" in result.stderr
+
+
+def test_judge_invalid_config_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    dataset = tmp_path / "dataset.jsonl"
+    config_path = tmp_path / "judge.json"
+    _write_jsonl(dataset, [{"id": "c1", "input": "q1"}])
+    config_path.write_text("{not valid json", encoding="utf-8")
+
+    result = runner.invoke(app, ["judge", "--dataset", str(dataset), "--config", str(config_path)])
+
+    assert result.exit_code == 1
+    assert "invalid JSON" in result.stderr
+
+
+def test_judge_nonexistent_config_path(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset.jsonl"
+    _write_jsonl(dataset, [{"id": "c1", "input": "q1"}])
+
+    result = runner.invoke(
+        app,
+        ["judge", "--dataset", str(dataset), "--config", str(tmp_path / "missing.json")],
+    )
+
+    assert result.exit_code == 2
+
+
+def test_calibrate_with_judge_artifact_as_rater(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset.jsonl"
+    config_path = tmp_path / "judge.json"
+    judge_artifact = tmp_path / "some_filename.jsonl"
+    out = tmp_path / "report.json"
+    _write_jsonl(
+        dataset,
+        [
+            {"id": "c1", "input": "q1", "human_label": "good"},
+            {"id": "c2", "input": "q2", "human_label": "bad"},
+        ],
+    )
+    _write_judge_config(config_path)
+
+    dataset_obj = load_dataset(dataset)
+    loaded_config = load_judge_config(config_path)
+    artifact = execute_judge(
+        dataset_obj,
+        loaded_config,
+        _FakeProvider(["good", "bad"]),
+        dataset_path=str(dataset),
+        judge_config_path=str(config_path),
+        cache_dir=tmp_path / "cache",
+    )
+    write_judge_artifact(artifact, judge_artifact)
+
+    result = runner.invoke(
+        app,
+        [
+            "calibrate",
+            "--dataset",
+            str(dataset),
+            "--ratings",
+            str(judge_artifact),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0
+    report = CalibrationReport.model_validate_json(out.read_text(encoding="utf-8"))
+    assert report.raters[0].rater_id == "judge1"
+    assert report.raters[0].rater_id != judge_artifact.stem
+
+
+def test_calibrate_with_plain_and_judge_artifact_raters(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset.jsonl"
+    plain_ratings = tmp_path / "human2.jsonl"
+    config_path = tmp_path / "judge.json"
+    judge_artifact = tmp_path / "judge_run.jsonl"
+    out = tmp_path / "report.json"
+    _write_jsonl(
+        dataset,
+        [
+            {"id": "c1", "input": "q1", "human_label": "good"},
+            {"id": "c2", "input": "q2", "human_label": "bad"},
+        ],
+    )
+    _write_jsonl(
+        plain_ratings,
+        [{"case_id": "c1", "label": "good"}, {"case_id": "c2", "label": "good"}],
+    )
+    _write_judge_config(config_path, id="judge2")
+
+    dataset_obj = load_dataset(dataset)
+    loaded_config = load_judge_config(config_path)
+    artifact = execute_judge(
+        dataset_obj,
+        loaded_config,
+        _FakeProvider(["good", "bad"]),
+        dataset_path=str(dataset),
+        judge_config_path=str(config_path),
+        cache_dir=tmp_path / "cache",
+    )
+    write_judge_artifact(artifact, judge_artifact)
+
+    result = runner.invoke(
+        app,
+        [
+            "calibrate",
+            "--dataset",
+            str(dataset),
+            "--ratings",
+            str(plain_ratings),
+            "--ratings",
+            str(judge_artifact),
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0
+    report = CalibrationReport.model_validate_json(out.read_text(encoding="utf-8"))
+    rater_ids = {r.rater_id for r in report.raters}
+    assert rater_ids == {plain_ratings.stem, "judge2"}
